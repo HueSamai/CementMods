@@ -1,17 +1,20 @@
 using UnityEngine;
 using UnityEngine.SceneManagement;
-using CementTools.Modules.InputModule;
-using CementTools;
-using Femur;
+using System;
+using MelonLoader;
 
-public class RemoveKillVolume : CementMod
+[RegisterTypeInIl2Cpp]
+public class RemoveKillVolumes : MonoBehaviour
 {
-    bool disabled;
-    GameObject[] killVolumes = new GameObject[0];
+    static bool disabled;
+    static GameObject[] killVolumes = new GameObject[0];
 
     public void Awake()
     {
-        SceneManager.sceneLoaded += OnSceneChanged;
+        SceneManager.add_sceneLoaded((Action<Scene, LoadSceneMode>)OnSceneChanged);
+    }
+
+    private void Update() {
     }
 
     public void OnSceneChanged(Scene scene, LoadSceneMode _)
@@ -20,7 +23,7 @@ public class RemoveKillVolume : CementMod
         disabled = false;
     }
 
-    public void ToggleKillVolumes()
+    public static void ToggleKillVolumes()
     {
         if (killVolumes.Length == 0)
         {

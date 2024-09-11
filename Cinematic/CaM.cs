@@ -1,13 +1,11 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
-using CementTools.Modules.InputModule;
-using CementTools;
-using System.Collections;
 using UnityEngine.SceneManagement;
-using Femur;
+using System;
+using MelonLoader;
 
-// Token: 0x02000005 RID: 5
-public class CinematicMod : CementMod
+[RegisterTypeInIl2Cpp]
+public class CinematicMod : MonoBehaviour 
 {
     private bool locked;
     private GameObject virtualCamera;
@@ -26,68 +24,38 @@ public class CinematicMod : CementMod
 
     private bool usingCustomCam;
 
-    public CinematicKeybindManager keybindManager;
-
     private void Start()
     {
-        SceneManager.sceneLoaded += OnSceneChanged;
-        SceneManager.sceneUnloaded += OnSceneUnload;
-
-        modFile.ChangedValues += Rebind;
-        
-        StartCoroutine(WaitToStart());
+        SceneManager.add_sceneLoaded((Action<Scene, LoadSceneMode>)OnSceneChanged);
+        SceneManager.add_sceneUnloaded((Action<Scene>)OnSceneUnload);
     }
 
-
-    public IEnumerator WaitToStart()
+    private bool _hasSetup = false;
+    public void Setup()
     {
-        yield return new WaitUntil(() => SceneManager.GetActiveScene().name == "Menu");
         camera = Camera.main.gameObject;
-        keybindManager = new CinematicKeybindManager(modFile);
-        
-        keybindManager.BindForward(MoveForward);
-        keybindManager.BindBackward(MoveBackward);
-        keybindManager.BindRight(MoveRight);
-        keybindManager.BindLeft(MoveLeft);
-        keybindManager.BindUp(MoveUp);
-        keybindManager.BindDown(MoveDown);
-        keybindManager.BindToggleCam(ToggleCam, false);
-        keybindManager.BindToggleLock(ToggleLock, false);
-        keybindManager.BindToggleKillVolumes(CementModSingleton.Get<RemoveKillVolume>().ToggleKillVolumes, false);
-    }
-
-    public void Rebind()
-    {
-        keybindManager.BindForward(MoveForward);
-        keybindManager.BindBackward(MoveBackward);
-        keybindManager.BindRight(MoveRight);
-        keybindManager.BindLeft(MoveLeft);
-        keybindManager.BindUp(MoveUp);
-        keybindManager.BindDown(MoveDown);
-        keybindManager.BindToggleCam(ToggleCam, false);
-        keybindManager.BindToggleLock(ToggleLock, false);
-        keybindManager.BindToggleKillVolumes(CementModSingleton.Get<RemoveKillVolume>().ToggleKillVolumes, false);
+        _hasSetup = camera != null;
     }
 
     private void OnSceneUnload(Scene _)
     {
+        if (!_hasSetup) return;
         cameraPosition = camera.transform.position;
         cameraRotation = camera.transform.rotation;
     }
 
     private void OnSceneChanged(Scene _, LoadSceneMode __)
     {
-        StartCoroutine(WaitToAdjustCamera());
+        _hasAdjustedCamera = false;
     }
-
-    private IEnumerator WaitToAdjustCamera()
+    
+    private bool _hasAdjustedCamera = false;
+    private void AdjustCamera()
     {
-        yield return new WaitUntil(() => virtualCamera != null);
-        yield return new WaitUntil(() => UI != null);
+        _hasAdjustedCamera = true;
+
         if (usingCustomCam)
-        {
             EnableCustomCamera();
-        }
     }
 
     private void EnableCustomCamera()
@@ -104,66 +72,6 @@ public class CinematicMod : CementMod
         UI.SetActive(true);
         cameraPosition = camera.transform.position;
         cameraRotation = camera.transform.rotation;
-    }
-
-    private void MoveForward()
-    {
-        if (!usingCustomCam || locked)
-        {
-            return;
-        }
-
-        camera.transform.position += speed * Time.deltaTime * camera.transform.forward;
-    }
-
-    private void MoveUp()
-    {
-        if (!usingCustomCam || locked)
-        {
-            return;
-        }
-
-        camera.transform.position += speed * Time.deltaTime * Vector3.up;
-    }
-
-    private void MoveDown()
-    {
-        if (!usingCustomCam || locked)
-        {
-            return;
-        }
-
-        camera.transform.position -= speed * Time.deltaTime * Vector3.up;
-    }
-
-    private void MoveBackward()
-    {
-        if (!usingCustomCam || locked)
-        {
-            return;
-        }
-
-        camera.transform.position -= speed * Time.deltaTime * camera.transform.forward;
-    }
-
-    private void MoveRight()
-    {
-        if (!usingCustomCam || locked)
-        {
-            return;
-        }
-
-        camera.transform.position += speed * Time.deltaTime * camera.transform.right;
-    }
-
-    private void MoveLeft()
-    {
-        if (!usingCustomCam || locked)
-        {
-            return;
-        }
-
-        camera.transform.position -= speed * Time.deltaTime * camera.transform.right;
     }
 
     private void ToggleLock()
@@ -186,6 +94,13 @@ public class CinematicMod : CementMod
 
     public void Update()
     {
+        if (!_hasSetup && SceneManager.GetActiveScene().name == "Menu")
+            Setup();
+
+        if (Keyboard.current.f3Key.wasPressedThisFrame) {
+            RemoveKillVolumes.ToggleKillVolumes();
+        }
+
         if (virtualCamera == null)
         {
             virtualCamera = GameObject.Find("VirtualCamera");
@@ -196,34 +111,76 @@ public class CinematicMod : CementMod
             UI = GameObject.Find("UI");
         }
 
-        if (keybindManager == null)
-        {
-            return;
+        if (virtualCamera == null || UI == null) return;
+
+        if (!_hasAdjustedCamera) AdjustCamera();
+
+        if (Keyboard.current.f1Key.wasPressedThisFrame) {
+            ToggleCam();
         }
 
-        keybindManager.CheckInputs();
-
-        if (!usingCustomCam || locked)
-        {
-            return;
-        }
-
-        if (Mouse.current.rightButton.isPressed)
-        {
-            float mouseX = Mouse.current.delta.x.ReadValue();
-            float mouseY = -Mouse.current.delta.y.ReadValue();
-
-            float newYRot = camera.transform.eulerAngles.y + mouseX * mouseSensitivity * Time.deltaTime;
-            float xRot = camera.transform.eulerAngles.x;
-            if (xRot > 180)
-            {
-                xRot -= 360;
+        if (usingCustomCam) {
+            if (Keyboard.current.f2Key.wasPressedThisFrame) {
+                ToggleLock();
             }
-
-            float newXRot = Mathf.Clamp(xRot + mouseY * mouseSensitivity * Time.deltaTime, -90f, 90f);
-
-            camera.transform.eulerAngles = new Vector3(newXRot, newYRot, 0);
         }
+
+        if (!usingCustomCam || locked) return;
+
+        if (camera == null) {
+            MelonLogger.Error("CAMERA IS NULL");
+            return;
+        }
+
+        try {
+            if (Mouse.current.rightButton.isPressed)
+            {
+                float mouseX = Mouse.current.delta.x.ReadValue();
+                float mouseY = -Mouse.current.delta.y.ReadValue();
+
+                float newYRot = camera.transform.eulerAngles.y + mouseX * mouseSensitivity * Time.deltaTime;
+                float xRot = camera.transform.eulerAngles.x;
+                if (xRot > 180)
+                {
+                    xRot -= 360;
+                }
+
+                float newXRot = Mathf.Clamp(xRot + mouseY * mouseSensitivity * Time.deltaTime, -90f, 90f);
+
+                camera.transform.eulerAngles = new Vector3(newXRot, newYRot, 0);
+            }
+        }
+        catch {
+            MelonLogger.Error("ERROR WITH MOUSE BUTTON THINGY");
+        }
+
+        Vector3 moveDirection = new Vector3(0, 0, 0);
+
+        if (Keyboard.current.upArrowKey.isPressed) {
+            moveDirection += camera.transform.forward;
+        }
+
+        if (Keyboard.current.downArrowKey.isPressed) {
+            moveDirection -= camera.transform.forward;
+        }
+
+        if (Keyboard.current.leftArrowKey.isPressed) {
+            moveDirection -= camera.transform.right;
+        }
+
+        if (Keyboard.current.rightArrowKey.isPressed) {
+            moveDirection += camera.transform.right;
+        }
+
+        if (Keyboard.current.qKey.isPressed) {
+            moveDirection -= Vector3.up;
+        }
+
+        if (Keyboard.current.eKey.isPressed) {
+            moveDirection += Vector3.up;
+        }
+
+        camera.transform.position += moveDirection * speed * Time.deltaTime;
     }
 
     private void LateUpdate()
@@ -239,6 +196,4 @@ public class CinematicMod : CementMod
             Cursor.lockState = CursorLockMode.None;
         }
     }
-
-    
 }

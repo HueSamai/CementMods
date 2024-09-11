@@ -3,23 +3,22 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BetterMapSelection", "BetterMapSelection\BetterMapSelection.csproj", "{27456548-0D82-4231-B510-F95D18384506}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "BetterMapSelection", "BetterMapSelection\BetterMapSelection.csproj", "{27456548-0D82-4231-B510-F95D18384506}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Totems", "Totems\Totems.csproj", "{3E35027D-DA85-4618-8959-5C227A3C7136}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Totems", "Totems\Totems.csproj", "{3E35027D-DA85-4618-8959-5C227A3C7136}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ChangePunchForce", "ChangePunchForce\ChangePunchForce.csproj", "{504EC1AB-8D02-42DA-B558-6C2BDC63A7CD}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "ChangePunchForce", "ChangePunchForce\ChangePunchForce.csproj", "{504EC1AB-8D02-42DA-B558-6C2BDC63A7CD}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Gore", "Gore\Gore.csproj", "{02E3643F-9B71-4E13-B8D9-550A21AB7531}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Gore", "Gore\Gore.csproj", "{02E3643F-9B71-4E13-B8D9-550A21AB7531}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Cinematic", "Cinematic\Cinematic.csproj", "{E3932B8B-D945-4CCF-AFA3-27455EA974F9}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "Cinematic", "Cinematic\Cinematic.csproj", "{E3932B8B-D945-4CCF-AFA3-27455EA974F9}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "BetterSpawnEnemies", "BetterSpawnEnemies\BetterSpawnEnemies.csproj", "{95AB91A3-35C2-4852-AEBF-FF5DDB936407}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
 		Release|Any CPU = Release|Any CPU
-	EndGlobalSection
-	GlobalSection(SolutionProperties) = preSolution
-		HideSolutionNode = FALSE
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
 		{27456548-0D82-4231-B510-F95D18384506}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
@@ -42,5 +41,15 @@ Global
 		{E3932B8B-D945-4CCF-AFA3-27455EA974F9}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{E3932B8B-D945-4CCF-AFA3-27455EA974F9}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{E3932B8B-D945-4CCF-AFA3-27455EA974F9}.Release|Any CPU.Build.0 = Release|Any CPU
+		{95AB91A3-35C2-4852-AEBF-FF5DDB936407}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{95AB91A3-35C2-4852-AEBF-FF5DDB936407}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{95AB91A3-35C2-4852-AEBF-FF5DDB936407}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{95AB91A3-35C2-4852-AEBF-FF5DDB936407}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E7DC95B6-0D2A-4213-AF70-C1FF6C169191}
 	EndGlobalSection
 EndGlobal

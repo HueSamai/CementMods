@@ -1,8 +1,0 @@
- 
-Name=Change Punch Force 
-Author=dotpy 
-CementFile=https://github.com/HueSamai/CementMods/raw/main/ChangePunchForce/ChangePunchForce.cmt 
-Message=https://github.com/HueSamai/CementMods/raw/main/ChangePunchForce/message 
-LatestVersion=https://github.com/HueSamai/CementMods/raw/main/ChangePunchForce/version 
-Links=https://github.com/HueSamai/CementMods/raw/main/ChangePunchForce/build/ChangePunchForce.dll 
-[Editable] [Float] PunchForceMultiplier=1 

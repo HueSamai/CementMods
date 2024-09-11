@@ -1,8 +1,0 @@
-Name=Change Punch Force
-Author=dotpy
-CementFile={}/ChangePunchForce.cmt
-Message={}/message
-LatestVersion={}/version
-Links={}/build/ChangePunchForce.dll
-
-[Editable] [Float] PunchForceMultiplier=1
