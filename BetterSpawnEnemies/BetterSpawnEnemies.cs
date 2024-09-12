@@ -14,19 +14,24 @@ using Il2CppGB.Core;
 using Il2CppGB.Game.Data;
 using Il2CppGB.Networking.Objects;
 using MelonLoader;
-using Resources = UnityEngine.Resources;
 using Il2CppGB.Core.Loading;
 using Il2CppCoreNet.Utils;
 using Il2CppGB.Game;
 using Il2CppGB.Networking.Utils;
 using UnityEngine.Networking;
 using UnityEngine.Rendering;
+using UnityEngine.AddressableAssets;
+using Il2CppGB.Data.Loading;
+using Il2CppGB.Core;
+using Resources = Il2CppGB.Core.Resources;
+using Il2CppInterop.Runtime.Runtime;
+using UnityEngine.ResourceManagement.AsyncOperations;
+using JetBrains.Annotations;
 
 [assembly: MelonInfo(typeof(BetterSpawnEnemies), "BetterSpawnEnemies", "0.0.1", "dotpy")]
 public class BetterSpawnEnemies : MelonMod
 {
     int enemyCount = 0;
-    WavesData waveInformation;
 
     bool inGame = false;
 
@@ -44,25 +49,61 @@ public class BetterSpawnEnemies : MelonMod
     // DEFAULT_BUTTON_TEXT is copied over on initiliase
     string[] currentButtonTexts;
 
+
+    List<WavesData> wavesData = new();
+    void LoadWaveData(AsyncOperationStatus status, AssetReference item, object data)
+    {
+        MelonLogger.Msg("Trying to load wave data.");
+
+        if (status != AsyncOperationStatus.Succeeded)
+        {
+            MelonLogger.Error("Failed to load scene data!");
+            return;
+        }
+
+        wavesData.Add(((Il2CppSystem.Object)data).Cast<SceneData>().WavesData);
+    }
+
+    string[] wavesMaps = { 
+        "Grind",
+        "Incinerator",
+        "Rooftop",
+        "Subway"
+    };
+    private void TryLoadAllWavesData()
+    {
+        wavesData.Clear();
+        foreach (string wavesMap in wavesMaps) {
+            var sceneDataReference = Global.Instance.SceneLoader._sceneList[wavesMap];
+            Il2CppSystem.Object data;
+            Resources.LoadLoadedAsset(sceneDataReference, wavesMap + "-Data", out data, (Resources.OnLoaded)LoadWaveData);
+        }
+    }
+
+    private WavesData GetRandomWavesData()
+    {
+        if (wavesData.Count == 0) return null;
+        return wavesData[Random.RandomRangeInt(0, wavesData.Count)];
+    }
+
     private List<NetBeast> aiNetPlayers = new();
     public void SpawnEnemy(int type, Vector3 position)
     {
-        Debug.Log("SPAWNING ENEMY");
-        if (waveInformation == null)
-        {
-            waveInformation = Global.Instance.SceneLoader.WavesData;
+        //if (!bakedNavigationMeshAlready)
+            //BakeNavigationMesh();
 
-            if (waveInformation == null)
-            {
-                MelonLogger.Error("Waves info is NULL!");
-                return;
-            }
+        Debug.Log("SPAWNING ENEMY");
+        WavesData data = GetRandomWavesData();
+        if (data == null)
+        {
+            MelonLogger.Error("WavesData is null!");
+            return;
         }
 
-        Wave spawnList = waveInformation.levelWaves[0];
+        Wave spawnList = data.levelWaves[0];
 
-        string name = waveInformation.GetRandomCostume();
-        int num = waveInformation.GetRandomColour();
+        string name = data.GetRandomCostume();
+        int num = data.GetRandomColour();
         int gang = spawnList.beasts[0].gangID;
 
         bool newNet = false;
@@ -106,7 +147,7 @@ public class BetterSpawnEnemies : MelonMod
         }
 
         GameObject gameObject = null;
-        gameObject = UnityEngine.Object.Instantiate<GameObject>(waveInformation.GetSpawnObject(type), position, Quaternion.identity);
+        gameObject = UnityEngine.Object.Instantiate<GameObject>(data.GetSpawnObject(type), position, Quaternion.identity);
 
         if (gameObject != null)
         {
@@ -137,6 +178,25 @@ public class BetterSpawnEnemies : MelonMod
         }
     }
 
+    private bool bakedNavigationMeshAlready = false;
+    public void BakeNavigationMesh()
+    {
+        if (bakedNavigationMeshAlready) return;
+        bakedNavigationMeshAlready = true;
+
+        foreach (Collider collider in GameObject.FindObjectsOfType<Collider>(true))
+        {
+            GameObject gamerMan = collider.gameObject;
+            //Rigidbody rb = gamerMan.GetComponent<Rigidbody>();
+            //if (rb != null && !rb.isKinematic)
+            //{
+            //    continue;
+            //}
+
+            gamerMan.AddComponent<NavMeshSurface>().BuildNavMesh();
+        }
+    }
+
     public override void OnLateInitializeMelon()
     {
         currentButtonTexts = (string[])DEFAULT_BUTTON_TEXT.Clone();
@@ -148,18 +208,28 @@ public class BetterSpawnEnemies : MelonMod
 
     public void SceneLoaded(Scene scene, LoadSceneMode _)
     {
+        bakedNavigationMeshAlready = false;
         inGame = scene.name != Global.MENU_SCENE_NAME;
+        if (inGame && wavesData.Count == 0)
+            TryLoadAllWavesData();
     }
 
-    public Vector3 GetMousePosition(Vector3 offset)
+    public Vector3? GetMousePosition(Vector3 offset)
     {
         Vector3 mousePos = Mouse.current.position.ReadValue();
         mousePos.z = 10f;
-        Vector3 worldPosition = Camera.main.ScreenToWorldPoint(mousePos);
-        return worldPosition + offset;
+
+        Ray ray = Camera.main.ScreenPointToRay(mousePos);
+        RaycastHit info;
+        
+        if (Physics.Raycast(ray, out info))
+        {
+            return info.point + offset;
+        }
+        return null;
     }
 
-    public void CheckIfAIDead()
+    public void CheckIfPlayerDead()
     {
         if (aiNetPlayers.Count == 0) return;
 
@@ -171,48 +241,42 @@ public class BetterSpawnEnemies : MelonMod
         NetModel model = GameObject.FindObjectOfType<NetModel>();
         foreach (var ai in aiNetPlayers)
         {
+            if (ai == null || ai.Instance == null) continue;
             model.Remove<NetBeast>("NET_PLAYERS", ai);
-            ai.Alive = false;
-            ai.Instance.GetComponent<Actor>().actorState = Actor.ActorState.Dead;
+            /*ai.Alive = false;
+            Actor actor = ai.Instance.GetComponent<Actor>();
+            if (actor != null) actor.actorState = Actor.ActorState.Dead;*/
         }
 
         aiNetPlayers.Clear();
     }
 
-    private bool recentlyPressedButton;
-    private float recentlyPressedTimer;
     public override void OnLateUpdate()
     {
-        if (recentlyPressedButton)
-        {
-            if (recentlyPressedTimer >= 0.1f)
-            {
-                recentlyPressedTimer = 0;
-                recentlyPressedButton = false;
-            }
-            else recentlyPressedTimer += Time.deltaTime;
-        }
+        CheckIfPlayerDead();
 
-        CheckIfAIDead();
-
-        if (!inGame || selectedEnemyType == -1 || recentlyPressedButton) return;
+        if (!inGame || selectedEnemyType == -1) return;
 
         if (Mouse.current.leftButton.wasPressedThisFrame)
         {
-            SpawnEnemy(selectedEnemyType, GetMousePosition(Vector3.up));
+            // check if mouse is close to buttons
+            Vector2 value = Mouse.current.position.ReadValue();
+            if (value.x < 100 && value.y > Screen.height - 100) return;
+            Vector3? pos = GetMousePosition(Vector3.up);
+            if (pos == null) return;
+            SpawnEnemy(selectedEnemyType, pos.Value);
         }
-
+        
         if (Gamepad.current != null && Gamepad.current.rightTrigger.wasPressedThisFrame)
         {
-            SpawnEnemy(selectedEnemyType, GetMousePosition(Vector3.up));
+            Vector3? pos = GetMousePosition(Vector3.up);
+            if (pos == null) return;
+            SpawnEnemy(selectedEnemyType, pos.Value);
         }
     }
 
-    // this code here is horrendous but oh well
     public void HandleButtonPress(int typeID)
     {
-        recentlyPressedButton = true;
-
         if (typeID != selectedEnemyType)
         {
             if (selectedEnemyType != -1)
