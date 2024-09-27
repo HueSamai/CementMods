@@ -1,7 +1,7 @@
 using MelonLoader;
 using UnityEngine;
 
-[assembly: MelonInfo(typeof(CinematicInjector), "Cinematic", "0.0.1", "dotpy and TheOwlOfLife")]
+[assembly: MelonInfo(typeof(CinematicInjector), "Cinematic", "0.0.1", "dotpy and TheOwlOfLife", "https://api.github.com/repos/HueSamai/CementMods/releases")]
 public class CinematicInjector : MelonMod {
     static GameObject hostObject;
     public override void OnLateInitializeMelon() {

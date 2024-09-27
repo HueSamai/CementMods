@@ -27,12 +27,12 @@ using Resources = Il2CppGB.Core.Resources;
 using Il2CppInterop.Runtime.Runtime;
 using UnityEngine.ResourceManagement.AsyncOperations;
 using JetBrains.Annotations;
+using Il2CppGB.Game.AI;
+using System.Linq;
 
-[assembly: MelonInfo(typeof(BetterSpawnEnemies), "BetterSpawnEnemies", "0.0.1", "dotpy")]
+[assembly: MelonInfo(typeof(BetterSpawnEnemies), "BetterSpawnEnemies", "1.0.0", "dotpy", "https://api.github.com/repos/HueSamai/CementMods/releases")]
 public class BetterSpawnEnemies : MelonMod
 {
-    int enemyCount = 0;
-
     bool inGame = false;
 
     int selectedEnemyType = -1;
@@ -62,6 +62,7 @@ public class BetterSpawnEnemies : MelonMod
         }
 
         wavesData.Add(((Il2CppSystem.Object)data).Cast<SceneData>().WavesData);
+
     }
 
     string[] wavesMaps = { 
@@ -86,6 +87,54 @@ public class BetterSpawnEnemies : MelonMod
         return wavesData[Random.RandomRangeInt(0, wavesData.Count)];
     }
 
+    private string[] _costumeNames;
+    private int[] _colours;
+
+    private void GetAllCostumesAndColours()
+    {
+        HashSet<string> costumeNames = new();
+        HashSet<int> colours = new();
+
+        foreach (WavesData data in wavesData)
+        {
+            foreach (Wave spawnList in data.levelWaves)
+            {
+                foreach (BeastSetup beast in spawnList.beasts)
+                {
+                    colours.Add(beast.colour);
+
+                    if (beast.costumeFallback)
+                        continue;
+
+                    costumeNames.Add(beast.costume);
+                }
+            }
+
+            foreach (string costume in data.fallbackCostumes)
+                costumeNames.Add(costume);
+
+            foreach (int colour in data.fallbackColourIndex)
+                colours.Add(colour);
+        }
+
+        _costumeNames = new string[costumeNames.Count];
+        costumeNames.CopyTo(_costumeNames);
+
+        _colours = new int[colours.Count];
+        colours.CopyTo(_colours);
+    }
+
+    private string GetRandomCostume()
+    {
+        return _costumeNames[Random.RandomRangeInt(0, _costumeNames.Length)];
+    }
+
+    private int GetRandomColour()
+    {
+        return _colours[Random.RandomRangeInt(0, _colours.Length)];
+    }
+
+
     private List<NetBeast> aiNetPlayers = new();
     public void SpawnEnemy(int type, Vector3 position)
     {
@@ -100,10 +149,16 @@ public class BetterSpawnEnemies : MelonMod
             return;
         }
 
+        if (_costumeNames == null)
+        {
+            GetAllCostumesAndColours();
+        }
+
         Wave spawnList = data.levelWaves[0];
 
-        string name = data.GetRandomCostume();
-        int num = data.GetRandomColour();
+        string name = GetRandomCostume();
+
+        int num = GetRandomColour();
         int gang = spawnList.beasts[0].gangID;
 
         bool newNet = false;
@@ -127,11 +182,11 @@ public class BetterSpawnEnemies : MelonMod
             costumeColor = colorOjectWithID.Colors[1];
         }
 
-        for (int j = 0; j < this.aiNetPlayers.Count; j++)
+        for (int j = 0; j < aiNetPlayers.Count; j++)
         {
-            if (!this.aiNetPlayers[j].Alive)
+            if (!aiNetPlayers[j].Alive)
             {
-                netBeastRef = this.aiNetPlayers[j];
+                netBeastRef = aiNetPlayers[j];
                 netBeastRef.Alive = true;
                 netBeastRef.Costume = netCostume;
                 netBeastRef.PrimaryColor = primaryColor;
@@ -140,9 +195,9 @@ public class BetterSpawnEnemies : MelonMod
         }
         if (netBeastRef == null)
         {
-            netBeastRef = new NetBeast(GameMode_Waves.AI_CONTROLLER_STARTIDEX + this.aiNetPlayers.Count, netCostume, primaryColor, costumeColor, gang, NetPlayer.PlayerType.AI, false);
+            netBeastRef = new NetBeast(GameMode_Waves.AI_CONTROLLER_STARTIDEX + aiNetPlayers.Count, netCostume, primaryColor, costumeColor, gang, NetPlayer.PlayerType.AI, false);
             netBeastRef.Alive = true;
-            this.aiNetPlayers.Add(netBeastRef);
+            aiNetPlayers.Add(netBeastRef);
             newNet = true;
         }
 
@@ -165,11 +220,11 @@ public class BetterSpawnEnemies : MelonMod
                 
                 if (!newNet)
                 {
-                    model.UpdateCollectionItem<NetBeast>("NET_PLAYERS", netBeastRef);
+                    model.UpdateCollectionItem("NET_PLAYERS", netBeastRef);
                 }
                 else
                 {
-                    model.Add<NetBeast>("NET_PLAYERS", netBeastRef);
+                    model.Add("NET_PLAYERS", netBeastRef);
                 }
                 component.DressBeast();
                 NetworkServer.Spawn(gameObject);
