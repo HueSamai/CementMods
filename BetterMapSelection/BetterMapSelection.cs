@@ -1,31 +1,66 @@
 using UnityEngine;
-using CementTools;
 using UnityEngine.SceneManagement;
-using GB.Gamemodes;
+using Il2CppGB.Gamemodes;
 using System.Reflection;
-using GB.UI;
+using Il2CppGB.UI;
+using CementGB.Mod.Utilities;
+using Il2CppGB.Platform.Lobby;
+using Il2CppGB.UI.Beasts;
+using Il2CppDG.Tweening;
+using UnityEngine.Events;
+using Il2CppGB.Config;
+using Il2CppInterop.Runtime.InteropTypes.Arrays;
+using MelonLoader;
+using BetterMapSelection;
 using System.Collections.Generic;
-using System.IO;
-using System.Collections;
-using CementTools.Modules.SceneModule;
-using GB.Platform.Lobby;
-using GB.UI.Beasts;
-using DG.Tweening;
+using Il2CppSystem;
+using System.Runtime.CompilerServices;
+using Il2Cpp;
+using Il2CppGB.Core;
+using Il2CppGB.Game;
+using static MelonLoader.MelonLogger;
+using Il2CppGB.Networking.Delegates;
+using Il2CppCoreNet.Contexts;
+using UnityEngine.Rendering;
+using Il2CppTMPro;
+using JetBrains.Annotations;
+using UnityEngine.UI;
+using Random = UnityEngine.Random;
+using Il2CppFemur;
+using System.Reflection.Metadata.Ecma335;
+using Il2CppCostumes;
+using Il2CppGB.Platform.Lobby.Utils;
+using CementGB.Mod.Modules.BeastInput;
 
+[assembly: MelonInfo(typeof(BetterMapSelectionMod), "BetterMapSelection", "0.0.1", "dotpy")]
 namespace BetterMapSelection
 {
 
     public class GameData
     {
-        public GameMode gameMode;
-        public List<string> mapNames = new List<string>();
+        public GameModeEnum gameMode;
+        public List<string> mapNames = new();
         public int mapCount;
+        public int winCount;
 
+        public bool votedForWinCount;
         public bool votedForMapCount;
         public bool votedForGameMode;
+        public bool votedForTeams;
+
+        public void Reset()
+        {
+            mapNames.Clear();
+            mapCount = 0;
+            winCount = 0;
+            votedForGameMode = false;
+            votedForMapCount = false;
+            votedForWinCount = false;
+            votedForTeams = false;
+        }
     }
 
-    public class BetterMapSelectionMod : CementMod
+    public class BetterMapSelectionMod : MelonMod
     {
 
         private const float ANIMATION_SPEED = 3.5f;
@@ -43,14 +78,17 @@ namespace BetterMapSelection
         private GameObject _mapGridPrefab;
         private GameObject _mapGrid;
         private bool _addedBaseMaps = false;
-        private List<MapUIBit> _mapBits = new List<MapUIBit>();
+        private Dictionary<string, MapUIBit> _mapBits = new();
         private GameObject _mapSelectionUIPrefab;
         private GameObject _activeMapUI;
-        private VotingSystem _currentVotingSystem;
-        private GameData _currentGameData;
+        public VotingSystem CurrentVotingSystem
+        {
+            get;
+            private set;
+        }
+        private GameData _currentGameData = new();
         private Transform _activeSelectedValues;
-        private bool _menuLoadedBefore;
-        private bool _playersReady = false;
+        private bool _menuLoadedBefore = false;
         private LocalBeastSetupTracker _tracker;
         private MenuHandlerGamemodes _menuHandler;
         private GameObject _localBeastMenu;
@@ -58,59 +96,58 @@ namespace BetterMapSelection
         private bool _menuHandlerActive = false;
         private bool _busySettingMenuHandler = false;
 
-        private void Awake()
+        private bool _startedVoting = false;
+        private GameModeSetupConfiguration _gameModeSetupTracker;
+
+        public override void OnLateInitializeMelon()
         {
             _singleton = this;
-            SceneManager.sceneLoaded += OnSceneChanged;
-        }
-
-        private void Start()
-        {
-            modFile.ChangedValues += delegate ()
-            {
-                if (modFile.GetBool("UseCustomMenu"))
-                {
-                    DisableUI(GetCanvas().transform);
-                }
-                else
-                {
-                    EnableUI();
-                }
-            };
+            SceneManager.sceneLoaded += (UnityAction<Scene,LoadSceneMode>)OnSceneChanged;
         }
 
         private void SetupValuesFromAssetBundles()
         {
-            AssetBundle assetBundle = AssetBundle.LoadFromFile(Path.Combine(modDirectoryPath, "bettermapselection"));
-            _mapSelectionUIPrefab = assetBundle.LoadAsset<GameObject>("BetterMapSelectionUI");
-            _mapBitPrefab = assetBundle.LoadAsset<GameObject>("MapBit");
-            MapImages.images = assetBundle.LoadAllAssets<Sprite>();
-            BMSResources.actorGraphic = assetBundle.LoadAsset<GameObject>("ActorGraphic");
-            BMSResources.defaultImage = assetBundle.LoadAsset<Sprite>("Default");
-            assetBundle.Unload(false);
+            AssetBundle assetBundle = EmbeddedUtilities.LoadEmbeddedAssetBundle(Assembly.GetExecutingAssembly(), "BetterMapSelection.bettermapselection"); ;
+            _mapSelectionUIPrefab = assetBundle.LoadPersistentAsset<GameObject>("BetterMapSelectionUI");
+            _mapBitPrefab = assetBundle.LoadPersistentAsset<GameObject>("MapBit");
+            GameObject.DontDestroyOnLoad(_mapSelectionUIPrefab);
+            GameObject.DontDestroyOnLoad(_mapBitPrefab);
+
+            var request = assetBundle.LoadAllAssetsAsync<Sprite>();
+            request.add_completed((Action<AsyncOperation>)delegate (AsyncOperation _)
+            {
+                List<Sprite> sprites = new List<Sprite>();
+                foreach (var asset in request.allAssets)
+                {
+                    asset.hideFlags = HideFlags.DontUnloadUnusedAsset;
+                    sprites.Add(asset.Cast<Sprite>());
+                }
+                MapImages.images = sprites.ToArray();
+
+                BMSResources.defaultImage = MapImages.BaseMapNameToSprite("Default");
+            });
+
+
+            BMSResources.actorGraphic = assetBundle.LoadPersistentAsset<GameObject>("ActorGraphic");
+            GameObject.DontDestroyOnLoad(BMSResources.actorGraphic);
 
             _mapGrid = _mapSelectionUIPrefab.transform.Find("MapGrid").gameObject;
-            DontDestroyOnLoad(_mapSelectionUIPrefab);
+            assetBundle.Unload(false);
         }
 
-        private GameModeSetupConfiguration GetGameModeSetupConfiguration()
-        {
-            FieldInfo trackerInfo = typeof(MenuHandlerGamemodes).GetField("tracker", BindingFlags.NonPublic | BindingFlags.Instance);
-            return trackerInfo.GetValue(FindObjectOfType<MenuHandlerGamemodes>()) as GameModeSetupConfiguration;
-
-        }
-
-        private void _AddMap(string mapName, Sprite mapImage)
+        private GameObject _AddMap(string mapName, Sprite mapImage)
         {
             if (mapImage == null)
             {
                 mapImage = BMSResources.defaultImage;
             }
-            MapUIBit mapBit = Instantiate(_mapBitPrefab).AddComponent<MapUIBit>();
+            MapUIBit mapBit = GameObject.Instantiate(_mapBitPrefab).AddComponent<MapUIBit>();
+            mapBit.gameObject.name = mapName;
             mapBit.transform.parent = _mapGrid.transform;
             mapBit.UpdateMap(mapName, mapImage);
 
-            _mapBits.Add(mapBit);
+            _mapBits[mapName] = mapBit;
+            return mapBit.gameObject;
         }
 
         public static void AddMap(string mapName, Sprite mapImage)
@@ -118,77 +155,38 @@ namespace BetterMapSelection
             _singleton._AddMap(mapName, mapImage);
         }
 
-        IEnumerator SetMenuHandler()
-        {
-            _busySettingMenuHandler = true;
-            yield return new WaitUntil(() => FindObjectOfType<MenuHandlerGamemodes>(true) != null);
-            _menuHandler = FindObjectOfType<MenuHandlerGamemodes>(true);
-            _menuHandler.enabled = _menuHandlerActive;
-            _busySettingMenuHandler = false;
-        }
-
-        private void DisableMenuHandler()
+        private void SetMenuHandler(bool value)
         {
             if (_menuHandler == null)
             {
                 if (_busySettingMenuHandler)
                 {
-                    _menuHandlerActive = false;
+                    _menuHandlerActive = value;
                 }
                 else
                 {
-                    StartCoroutine(SetMenuHandler());
+                    _busySettingMenuHandler = true;
                 }
-            } 
+            }
             else
             {
-                _menuHandler.enabled = false;
+                _menuHandler.enabled = value;
             }
         }
 
-        private void EnableMenuHandler()
+        private void AddBaseMaps()
         {
-            if (_menuHandler == null)
-            {
-                if (_busySettingMenuHandler)
-                {
-                    _menuHandlerActive = true;
-                }
-                else
-                {
-                    StartCoroutine(SetMenuHandler());
-                }
-            } 
-            else
-            {
-                _menuHandler.enabled = true;
-            }
-        }
+            _addedBaseMaps = true;
 
-        private void AddBaseMaps(Transform canvasParent)
-        {
-            IEnumerator _AddBaseMaps()
+            GameModeSetupConfiguration gmsc = _gameModeSetupTracker;
+            foreach (ModeMapStatus map in gmsc.Maps.AvailableMaps)
             {
-                Cement.Log("Waiting for Menu Handler Gamemodes");
-                yield return new WaitUntil(() => FindObjectOfType<MenuHandlerGamemodes>() != null);
-
-                GameModeSetupConfiguration gmsc = GetGameModeSetupConfiguration();
-                foreach (ModeMapStatus map in gmsc.Maps.AvailableMaps)
-                {
-                    if (map.MapName == "Alley")
-                    {
-                        continue;
-                    }
-                    Cement.Log($"ADDING BASE MAP {map.MapName}");
-                    _AddMap(map.MapName, MapImages.BaseMapNameToSprite(map.MapName));
-                }
-
-                _addedBaseMaps = true;
-                Cement.Log("Added base maps!");
-                SpawnCanvas(GetCanvas().transform);
+                _AddMap(map.MapName, MapImages.BaseMapNameToSprite(map.MapName));
             }
 
-            StartCoroutine(_AddBaseMaps());
+            _AddMap("Random", MapImages.BaseMapNameToSprite("Random"));
+
+            SpawnCanvas(GetCanvas().transform);
         }
 
         private GameObject GetCanvas()
@@ -198,8 +196,7 @@ namespace BetterMapSelection
 
         private void SpawnCanvas(Transform parent)
         {
-            Cement.Log("Spawning in canvas!");
-            _activeMapUI = Instantiate(_mapSelectionUIPrefab, parent);
+            _activeMapUI = GameObject.Instantiate(_mapSelectionUIPrefab, parent);
             _activeMapUI.transform.eulerAngles = new Vector3(0, -90, 0);
             _activeMapUI.transform.localPosition = new Vector3(0, 220, 0);
             _activeMapUI.transform.localScale = Vector3.one * 2.4f;
@@ -209,15 +206,24 @@ namespace BetterMapSelection
 
         string[] _childrenToDisable = new string[]
         {
-            "Wins/HoriSort", "Maps", "StartGame", "Ganemodes/HoriSort"
+            "Wins", "Maps", "StartGame", "Ganemodes"
         };
-        private void DisableUI(Transform canvas)
+        private bool _inGameUIDisabled = false;
+        private bool _uiShouldBeDisabled = false;
+        private void DisableUI()
         {
-            Transform parent = canvas.Find("Local Beast Select Menu/UI/GameModeSelection");
-            foreach (string child in _childrenToDisable)
+            _uiShouldBeDisabled = true;
+            
+            if (_localBeastMenu == null && !TrySettingLocalBeastMenu()) return;
+
+            
+            Transform gameModeSelection = _localBeastMenu.transform.Find("UI/GameModeSelection");
+            foreach (string childName in _childrenToDisable)
             {
-                parent.Find(child).gameObject.SetActive(false);
+                gameModeSelection.Find(childName).gameObject.SetActive(false);
             }
+
+            _inGameUIDisabled = true;
         }
 
         private void EnableUI()
@@ -230,9 +236,10 @@ namespace BetterMapSelection
                 parent.Find(child).gameObject.SetActive(true);
             }
 
-            EnableMenuHandler();
+            SetMenuHandler(true);
         }
 
+        /* TODO
         private void OnDisable()
         {
             EnableUI();
@@ -242,140 +249,247 @@ namespace BetterMapSelection
         {
             if (SceneManager.GetActiveScene().name == "Menu")
                 OnMenuLoad();
-        }
+        }*/
 
         private void OnMenuLoad()
         {
             if (!_menuLoadedBefore)
             {
                 SetupValuesFromAssetBundles();
-                _tracker = FindObjectOfType<LocalBeastSetupTracker>();
+                _tracker = GameObject.FindObjectOfType<LocalBeastSetupTracker>();
                 _menuLoadedBefore = true;
             }
 
-            _currentGameData = new GameData();
+            _startedVoting = false;
+            _currentGameData.Reset();
 
             GameObject canvas = GetCanvas();
-            Cement.Log("Trying to disable ui...");
-            DisableUI(canvas.transform);
-            Cement.Log("Adding base maps if haven't already...");
-            if (!_addedBaseMaps)
-            {
-                AddBaseMaps(canvas.transform);
-            }
-            else
+            DisableUI();
+
+            if (_addedBaseMaps) 
             {
                 SpawnCanvas(canvas.transform);
             }
 
-            DisableMenuHandler();
+            SetMenuHandler(false);
         }
 
         private void OnSceneChanged(Scene scene, LoadSceneMode _)
         {
-            if (!enabled)
-            {
-                return;
-            }
-
-            _playersReady = false;
-            _seenLobby = false;
-
             if (scene.name == "Menu")
                 OnMenuLoad();
         }
 
+        private void ShowAllowedMapsForGameMode(GameModeEnum gameMode)
+        {
+            Transform mapGrid = _activeMapUI.transform.Find("MapGrid");
+            var maps = _gameModeSetupTracker.Maps.GetMapsFor(gameMode, true);
+            for (int i = 0; i < mapGrid.GetChildCount(); ++i)
+                mapGrid.GetChild(i).gameObject.SetActive(false);
+
+            foreach (var allowedMap in maps)
+            {
+                //LoggingUtilities.VerboseLog("ALLOWED MAP: " + allowedMap.MapName);
+
+                var bit = mapGrid.Find(allowedMap.MapName);
+                if (bit == null)
+                    continue;
+
+                bit.gameObject.SetActive(true);
+            }
+        }
+
         private void CreateSelectedBit(int result)
         {
-            MapUIBit mapBit = Instantiate(_mapBitPrefab).AddComponent<MapUIBit>();
+            UIBit mapBit = GameObject.Instantiate(_mapBitPrefab).AddComponent<UIBit>();
             mapBit.transform.SetParent(_activeSelectedValues.transform, false);
+            GameObject.Destroy(mapBit.GetComponent<Button>());
+            
+            string mapName = CurrentVotingSystem.mapBits[result].GetName();
+            Sprite mapImage = CurrentVotingSystem.mapBits[result].GetSprite();
 
-            string mapName = _currentVotingSystem.mapBits[result].GetName();
-            Sprite mapImage = _currentVotingSystem.mapBits[result].GetImage();
 
             mapBit.UpdateMap(mapName, mapImage);
+            mapBit.GetImage().color = CurrentVotingSystem.mapBits[result].GetImage().color;
 
-            mapBit.transform.localScale = Vector3.zero;
-            mapBit.transform.DOScale(Vector3.one, 1f / ANIMATION_SPEED);
+            mapBit.transform.localScale = Vector3.one;
+            //mapBit.transform.localScale = Vector3.zero;
+            //mapBit.transform.DOScale(Vector3.one, 1f / ANIMATION_SPEED);
         }
 
         private Tweener AnimateCurrentGridOff()
         {
-            Transform currentGrid = _currentVotingSystem.mapBits[0].transform.parent;
-            return currentGrid.DOScale(Vector3.zero, 1f / ANIMATION_SPEED);
+            Transform currentGrid = CurrentVotingSystem.mapBits[0].transform.parent;
+            currentGrid.localScale = Vector3.one;
+            currentGrid.gameObject.SetActive(false);
+            return null;  //currentGrid.DOScale(Vector3.zero, 1f / ANIMATION_SPEED);
         }
 
         private void AnimateGridOn(GameObject grid)
         {
             grid.SetActive(true);
-            grid.transform.localScale = Vector3.zero;
+            grid.transform.localScale = Vector3.one; // Vector3.zero
+            CreateVotingSystem(grid);
+
+            /*
             grid.transform.DOScale(Vector3.one, 1f / ANIMATION_SPEED).OnComplete(delegate ()
             {
                 CreateVotingSystem(grid);
-            });
+            });*/
         }
 
         private void OnVotingEnded(int result)
         {
-            AnimateCurrentGridOff().OnComplete(() => HandleNextVotingSystem(result));
+            //AnimateCurrentGridOff().onComplete += (TweenCallback) delegate () { HandleNextVotingSystem(result); };
             CreateSelectedBit(result);
+            AnimateCurrentGridOff();
+            HandleNextVotingSystem(result);
         }
 
+        private void UpdateBeastTeam(Actor beast, int teamIndex)
+        {
+            var playerID = BeastInput.FallbackGetPlayerID(beast);
+            LobbyManager.Instance.LocalBeasts.PlayerInfo[playerID].TeamIndex = teamIndex;
+        }
+
+        private void UpdateActorGraphicColour(Actor beast, ActorGraphic graphic)
+        {
+            var playerID = BeastInput.FallbackGetPlayerID(beast);
+            graphic.SetStickerColour(CostumePool.I.PlayerColorDatabase.GetColorOjectWithID((ushort)(LobbyManager.Instance.LocalBeasts.PlayerInfo[playerID].TeamIndex + 1)).Colors[0]);
+        }
+
+        private void UpdateAllBeastsTeams()
+        {
+            if (CurrentVotingSystem == null) return;
+            foreach (Actor actor in CurrentVotingSystem.GetActorVotes().Keys)
+            {
+                UpdateBeastTeam(actor, CurrentVotingSystem.GetActorVotes()[actor]);
+                UpdateActorGraphicColour(actor, CurrentVotingSystem.GetActorGraphics()[actor]);
+            }
+        }
+
+        private bool _updateBeastTeams = false;
         private void HandleNextVotingSystem(int result)
         {
             if (!_currentGameData.votedForGameMode)
             {
                 _currentGameData.votedForGameMode = true;
-                _currentGameData.gameMode = (GameMode)(_currentVotingSystem.mapBits[result] as GameModeUIBit).gameModeEnumInt;
+                _currentGameData.gameMode = (GameModeEnum)((GameModeUIBit)CurrentVotingSystem.mapBits[result]).gameMode;
+                _menuHandler.SetCurrentGameMode(_currentGameData.gameMode);
+                
+                string nextGrid = _currentGameData.gameMode == GameModeEnum.Football ? "FootballTeamGrid" :
+                    _currentGameData.gameMode == GameModeEnum.GangMelee ? "GangTeamGrid" :
+                    "WinCountGrid";
 
-                GameObject activeMapCountGrid = _activeMapUI.transform.Find("MapCountGrid").gameObject;
+                if (nextGrid == "WinCountGrid")
+                    _currentGameData.votedForTeams = true;
+                else
+                    _updateBeastTeams = true;
+
+                GameObject activeMapCountGrid = _activeMapUI.transform.Find(nextGrid).gameObject;
                 AnimateGridOn(activeMapCountGrid);
+
+                ShowAllowedMapsForGameMode(_currentGameData.gameMode);
+            }
+            else if (!_currentGameData.votedForTeams)
+            {
+                _currentGameData.votedForTeams = true;
+                _updateBeastTeams = false;
+                UpdateAllBeastsTeams();
+
+                _currentGameData.mapCount = _currentGameData.winCount = 1;
+                _currentGameData.votedForWinCount = _currentGameData.votedForMapCount = true;
+
+                GameObject activeMapCountGrid = _activeMapUI.transform.Find("MapGrid").gameObject;
+                AnimateGridOn(activeMapCountGrid);
+            }
+            else if (!_currentGameData.votedForWinCount)
+            {
+                _currentGameData.votedForWinCount = true;
+                _currentGameData.winCount = (CurrentVotingSystem.mapBits[result] as MapCountUIBit).mapCount;
+
+                GameObject activeMapGrid = _activeMapUI.transform.Find("MapCountGrid").gameObject;
+                AnimateGridOn(activeMapGrid);
             }
             else if (!_currentGameData.votedForMapCount)
             {
                 _currentGameData.votedForMapCount = true;
-                _currentGameData.mapCount = (_currentVotingSystem.mapBits[result] as MapCountUIBit).mapCount;
+                _currentGameData.mapCount = (CurrentVotingSystem.mapBits[result] as MapCountUIBit).mapCount;
 
                 GameObject activeMapGrid = _activeMapUI.transform.Find("MapGrid").gameObject;
                 AnimateGridOn(activeMapGrid);
             }
             else if (_currentGameData.mapNames.Count < _currentGameData.mapCount - 1)
             {
-                _currentGameData.mapNames.Add(_currentVotingSystem.mapBits[result].GetName());
+                string mapName = CurrentVotingSystem.mapBits[result].GetName();
+                if (mapName == "Random")
+                    mapName = CurrentVotingSystem.mapBits[Random.Range(0, CurrentVotingSystem.mapBits.Length - 2)].GetName();
+
+                _currentGameData.mapNames.Add(mapName);
 
                 GameObject activeMapGrid = _activeMapUI.transform.Find("MapGrid").gameObject;
                 AnimateGridOn(activeMapGrid);
             }
             else
             {
-                _menuHandler.enabled = true;
-                CustomSceneManager.StartCustomGame(new CustomRotationConfig(
-                    _currentGameData.mapNames.ToArray(),
-                    _currentGameData.mapNames.Count,
-                    _currentGameData.gameMode,
-                    false,
-                    5 * 3600
-                ));
+                _currentGameData.mapNames.Add(CurrentVotingSystem.mapBits[result].GetName());
+                StartGame();
             }
+        }
+
+        private void StartGame()
+        {
+            _menuHandler.selectedConfig = GBConfigLoader.CreateRotationConfig(
+                new Il2CppStringArray(_currentGameData.mapNames.ToArray()),
+                _currentGameData.gameMode,
+                _currentGameData.winCount,
+                false,
+                5 * 3600
+            );
+            LobbyManager instance = LobbyManager.Instance;
+            GameManagerNew.OnGameManagerCreated += (Handler)_menuHandler.SetConfigOnGameManager;
+            instance.LobbyStates.CurrentState = (LobbyState.State.Ready | LobbyState.State.InGame);
+            instance.LobbyStates.UpdateLobbyState();
+            LobbyManager.Instance.LocalBeasts.SetupNetMemberContext(false);
+            _menuHandler.SetupLoadScreen();
+            MonoSingleton<Global>.Instance.LevelLoadSystem.ShowLoadingScreen(3f, (Action)delegate
+            {
+                UnityEngine.Debug.Log("Launching Host...");
+                NetMemberContext.LocalHostedGame = true;
+                MonoSingleton<Global>.Instance.UNetManager.LaunchHost();
+            }, -1f, false);
         }
 
         private void CreateVotingSystem(GameObject grid)
         {
-            grid.gameObject.SetActive(true);
-            foreach (Transform bit in grid.transform)
+            /*
+            try
             {
-                if (bit.GetComponent<MapUIBit>() == null)
+                
+                for (int i = 0; i < grid.transform.childCount; ++i)
                 {
-                    bit.gameObject.AddComponent<MapUIBit>();
+                    var bit = grid.transform.GetChild(i);
+                    if (bit.gameObject.GetComponent<UIBit>() == null)
+                    {
+                        bit.gameObject.AddComponent<UIBit>();
+                    }
                 }
             }
-            MapUIBit[] bits = grid.GetComponentsInChildren<MapUIBit>();
-            _currentVotingSystem = new VotingSystem(10f, bits, Mathf.Min(6, bits.Length), _activeMapUI.transform);
-            _currentVotingSystem.VotingEnded += OnVotingEnded;
+            catch
+            {
+                LoggingUtilities.VerboseLog("FIRST HALF!");
+            }*/
+            grid.SetActive(true);
+            UIBit[] bits = grid.GetComponentsInChildren<UIBit>();
+            TMP_Text timerText = _activeMapUI.transform.Find("Timer").GetComponent<TMP_Text>();
+            CurrentVotingSystem = new VotingSystem(10f, bits, Mathf.Min(6, bits.Length), _activeMapUI.transform, timerText);
+            CurrentVotingSystem.VotingEnded += OnVotingEnded;
         }
 
         private void StartVoting()
         {
+            _startedVoting = true;
+            _activeMapUI.SetActive(true);
             GameObject activeGameModeGrid = _activeMapUI.transform.Find("GameModeGrid").gameObject;
             CreateVotingSystem(activeGameModeGrid);
         }
@@ -403,28 +517,79 @@ namespace BetterMapSelection
             return true;
         }
 
-        private bool _seenLobby = false;
-        private void Update()
+        private void CancelVoting()
         {
+            if (CurrentVotingSystem == null) return;
+            
+            for (int i = 0; i < _activeSelectedValues.childCount; ++i)
+                GameObject.Destroy(_activeSelectedValues.GetChild(i).gameObject);
+
+            for (int i = 0; i < _activeMapUI.transform.childCount; ++i)
+            {
+                Transform child = _activeMapUI.transform.GetChild(i);
+                if (child != _activeSelectedValues && child.name != "Timer")
+                    child.gameObject.SetActive(false);
+            }
+
+            CurrentVotingSystem.EndVote();
+            CurrentVotingSystem = null;
+            _activeMapUI.SetActive(false);
+            _startedVoting = false;
+            _currentGameData.Reset();
+        }
+
+        public override void OnUpdate()
+        {
+            /* TODO
             if (!modFile.GetBool("UseCustomMenu"))
             {
                 return;
             }
+            */
+
 
             if (SceneManager.GetActiveScene().name != "Menu")
             {
                 return;
             }
 
+            if (_busySettingMenuHandler)
+            {
+
+                MenuHandlerGamemodes[] gamemodes = GameObject.FindObjectsOfType<MenuHandlerGamemodes>(true);
+                if (gamemodes != null)
+                    foreach (MenuHandlerGamemodes menuHandler in gamemodes)
+                    {
+                        if (menuHandler == null) continue;
+                        if (menuHandler.type == MenuHandlerGamemodes.MenuType.Local)
+                            _menuHandler = menuHandler;
+                        if (menuHandler.tracker != null)
+                            _gameModeSetupTracker = menuHandler.tracker;
+                    }
+
+                if (_menuHandler != null)
+                {
+                    _menuHandler.enabled = _menuHandlerActive;
+                    _busySettingMenuHandler = false;
+                }
+            }
+
+            if (!_addedBaseMaps && _menuHandler != null && _gameModeSetupTracker != null)
+            {
+                _gameModeSetupTracker.Maps.GetMapsFor(GameModeEnum.Melee); // triggers Cement's patch to add custom scenes
+                AddBaseMaps();
+            }
+
             // will return if failed
             if (_localBeastMenu == null && !TrySettingLocalBeastMenu())
-            {
                 return;
-            }
-        
+
+            if (_uiShouldBeDisabled && !_inGameUIDisabled)
+                DisableUI();
+
             if (_tracker == null)
             {
-                _tracker = FindObjectOfType<LocalBeastSetupTracker>();
+                _tracker = GameObject.FindObjectOfType<LocalBeastSetupTracker>();
                 if (_tracker == null)
                 {
                     return;
@@ -433,29 +598,20 @@ namespace BetterMapSelection
 
             if (IsLocalLobby())
             {
-                if (!_seenLobby)
+                if (_tracker.AllActiveBeastsReady())
                 {
-                    _tracker.ForceAllAToB(BeastUtils.PlayerState.Ready, BeastUtils.PlayerState.Designing);
-                    _seenLobby = true;
+                    if (!_startedVoting) StartVoting();
                 }
+                else if (CurrentVotingSystem != null)
+                    CancelVoting();
 
-                if (_playersReady)
-                {
-                    _tracker.ForceAllAToB(BeastUtils.PlayerState.Designing, BeastUtils.PlayerState.Ready);
-                }
-                else
-                {
-                    _playersReady = _tracker.AllActiveBeastsReady();
-                    if (_playersReady)
-                    {
-                        StartVoting();
-                    }
-                }
+                if (_updateBeastTeams)
+                    UpdateAllBeastsTeams();
             }
 
-            if (_currentVotingSystem != null)
+            if (CurrentVotingSystem != null)
             {
-                _currentVotingSystem.Tick(Time.deltaTime);
+                CurrentVotingSystem.Tick(Time.deltaTime);
             }
         }
     }

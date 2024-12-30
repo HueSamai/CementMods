@@ -1,8 +1,0 @@
- 
-Name=BetterMapSelection 
-Author=dotpy 
-Message=https://github.com/HueSamai/CementMods/raw/main/BetterMapSelection/message 
-CementFile=https://github.com/HueSamai/CementMods/raw/main/BetterMapSelection/BetterMapSelection.cmt 
-Links=https://github.com/HueSamai/CementMods/raw/main/BetterMapSelection/build/BetterMapSelection.dll,https://github.com/HueSamai/CementMods/raw/main/BetterMapSelection/BMSHelper.dll,https://github.com/HueSamai/CementMods/raw/main/BetterMapSelection/bettermapselection 
-LatestVersion=https://github.com/HueSamai/CementMods/raw/main/BetterMapSelection/version 
-[Editable][Boolean] UseCustomMenu=true 

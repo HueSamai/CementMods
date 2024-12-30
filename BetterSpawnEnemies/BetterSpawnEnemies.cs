@@ -29,8 +29,9 @@ using UnityEngine.ResourceManagement.AsyncOperations;
 using JetBrains.Annotations;
 using Il2CppGB.Game.AI;
 using System.Linq;
+using MelonLoader.Utils;
 
-[assembly: MelonInfo(typeof(BetterSpawnEnemies), "BetterSpawnEnemies", "1.0.0", "dotpy", "https://api.github.com/repos/HueSamai/CementMods/releases")]
+[assembly: MelonInfo(typeof(BetterSpawnEnemies), "BetterSpawnEnemies", "1.0.1", "dotpy", "https://api.github.com/repos/HueSamai/CementMods/releases")]
 public class BetterSpawnEnemies : MelonMod
 {
     bool inGame = false;
@@ -48,6 +49,36 @@ public class BetterSpawnEnemies : MelonMod
 
     // DEFAULT_BUTTON_TEXT is copied over on initiliase
     string[] currentButtonTexts;
+
+    private bool _useRandomColours = false;
+
+    private bool _spawnFriend = false;
+
+    
+    public override void OnLateInitializeMelon()
+    {
+        currentButtonTexts = (string[])DEFAULT_BUTTON_TEXT.Clone();
+
+        string path = "Waves/Grind";
+
+        SceneManager.sceneLoaded += (Action<Scene, LoadSceneMode>)SceneLoaded;
+
+        if (MelonPreferences.GetCategory("BetterSpawnEnemies") == null)
+            CreateCategory();
+    }
+
+    private void CreateCategory()
+    {
+        var cat = MelonPreferences.CreateCategory("BetterSpawnEnemies");
+        cat.CreateEntry("use_random_colours", false);
+        cat.SetFilePath(Path.Combine(MelonEnvironment.UserDataDirectory, "BetterSpawnEnemies.cfg"));
+        cat.SaveToFile();
+    }
+
+    public override void OnPreferencesLoaded()
+    {
+        _useRandomColours = MelonPreferences.GetEntry<bool>("BetterSpawnEnemies", "use_random_colours").Value;
+    }
 
 
     List<WavesData> wavesData = new();
@@ -73,12 +104,17 @@ public class BetterSpawnEnemies : MelonMod
     };
     private void TryLoadAllWavesData()
     {
-        wavesData.Clear();
-        foreach (string wavesMap in wavesMaps) {
-            var sceneDataReference = Global.Instance.SceneLoader._sceneList[wavesMap];
-            Il2CppSystem.Object data;
-            Resources.LoadLoadedAsset(sceneDataReference, wavesMap + "-Data", out data, (Resources.OnLoaded)LoadWaveData);
+        try
+        {
+            wavesData.Clear();
+            foreach (string wavesMap in wavesMaps)
+            {
+                var sceneDataReference = Global.Instance.SceneLoader._sceneList[wavesMap];
+                Il2CppSystem.Object data;
+                Resources.LoadLoadedAsset(sceneDataReference, wavesMap + "-Data", out data, (Resources.OnLoaded)LoadWaveData);
+            }
         }
+        catch { }
     }
 
     private WavesData GetRandomWavesData()
@@ -154,15 +190,12 @@ public class BetterSpawnEnemies : MelonMod
             GetAllCostumesAndColours();
         }
 
-        Wave spawnList = data.levelWaves[0];
-
         string name = GetRandomCostume();
 
         int num = GetRandomColour();
-        int gang = spawnList.beasts[0].gangID;
+        int gang = _spawnFriend ? GetPlayerGangID() : data.levelWaves[0].beasts[0].gangID;
 
         bool newNet = false;
-        NetBeast netBeastRef = null;
         CostumeSaveEntry costumeSaveEntry = MonoSingleton<Global>.Instance.Costumes.CostumePresetDatabase.GetCostumeByPresetName(name);
         if (costumeSaveEntry == null)
         {
@@ -173,15 +206,25 @@ public class BetterSpawnEnemies : MelonMod
         ColorObject colorOjectWithID = CostumePool.I.PlayerColorDatabase.GetColorOjectWithID((ushort)num);
         Color primaryColor = Color.gray;
         Color costumeColor = Color.gray;
-        if (colorOjectWithID != null && colorOjectWithID.Colors.Length != 0)
+
+        if (_useRandomColours) 
         {
-            primaryColor = colorOjectWithID.Colors[0];
-        }
-        if (colorOjectWithID != null && colorOjectWithID.Colors.Length > 1)
-        {
-            costumeColor = colorOjectWithID.Colors[1];
+            primaryColor = new Color(Random.value, Random.value, Random.value);
+            costumeColor = new Color(Random.value, Random.value, Random.value);
+        } 
+        else 
+        { 
+            if (colorOjectWithID != null && colorOjectWithID.Colors.Length != 0)
+            {
+                primaryColor = colorOjectWithID.Colors[0];
+            }
+            if (colorOjectWithID != null && colorOjectWithID.Colors.Length > 1)
+            {
+                costumeColor = colorOjectWithID.Colors[1];
+            }
         }
 
+        NetBeast netBeastRef = null;
         for (int j = 0; j < aiNetPlayers.Count; j++)
         {
             if (!aiNetPlayers[j].Alive)
@@ -193,6 +236,7 @@ public class BetterSpawnEnemies : MelonMod
                 netBeastRef.CostumeColor = costumeColor;
             }
         }
+
         if (netBeastRef == null)
         {
             netBeastRef = new NetBeast(GameMode_Waves.AI_CONTROLLER_STARTIDEX + aiNetPlayers.Count, netCostume, primaryColor, costumeColor, gang, NetPlayer.PlayerType.AI, false);
@@ -201,9 +245,7 @@ public class BetterSpawnEnemies : MelonMod
             newNet = true;
         }
 
-        GameObject gameObject = null;
-        gameObject = UnityEngine.Object.Instantiate<GameObject>(data.GetSpawnObject(type), position, Quaternion.identity);
-
+        GameObject gameObject = UnityEngine.Object.Instantiate<GameObject>(data.GetSpawnObject(type), position, Quaternion.identity);
         if (gameObject != null)
         {
             netBeastRef.Instance = gameObject;
@@ -252,21 +294,10 @@ public class BetterSpawnEnemies : MelonMod
         }
     }
 
-    public override void OnLateInitializeMelon()
-    {
-        currentButtonTexts = (string[])DEFAULT_BUTTON_TEXT.Clone();
-
-        string path = "Waves/Grind";
-
-        SceneManager.sceneLoaded += (Action<Scene, LoadSceneMode>)SceneLoaded;
-    }
-
     public void SceneLoaded(Scene scene, LoadSceneMode _)
     {
         bakedNavigationMeshAlready = false;
         inGame = scene.name != Global.MENU_SCENE_NAME;
-        if (inGame && wavesData.Count == 0)
-            TryLoadAllWavesData();
     }
 
     public Vector3? GetMousePosition(Vector3 offset)
@@ -330,6 +361,13 @@ public class BetterSpawnEnemies : MelonMod
         }
     }
 
+    private int GetPlayerGangID()
+    {
+        if (Actor.LocalPlayers.Count == 0)
+            return 0;
+        return Actor.LocalPlayers[0].gangID;
+    }
+
     public void HandleButtonPress(int typeID)
     {
         if (typeID != selectedEnemyType)
@@ -353,5 +391,28 @@ public class BetterSpawnEnemies : MelonMod
     {
         foreach (var index in LOOP_ORDER)
             if (GUILayout.Button(currentButtonTexts[index])) HandleButtonPress(index);
+
+        if (GUILayout.Button($"Spawn friend: {_spawnFriend}"))
+        {
+            _spawnFriend = !_spawnFriend;
+        }
+    }
+
+    private float _timer = 0.0f;
+    public override void OnUpdate()
+    {
+        if (wavesData.Count > 0)
+        {
+            return;
+        }
+
+        if (_timer >= 0)
+        {
+            _timer -= Time.deltaTime;
+            return;
+        }
+
+        _timer = 2.0f;
+        TryLoadAllWavesData();
     }
 }

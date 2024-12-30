@@ -1,86 +1,120 @@
 using System;
 using UnityEngine;
-using CementTools;
-using CementTools.Modules.InputModule;
+using CementGB.Mod.Modules.BeastInput;
 using System.Collections.Generic;
-using Femur;
+using Il2CppFemur;
 using Random = UnityEngine.Random;
+using CementGB.Mod.Utilities;
+using UnityEngine.InputSystem;
+using Il2CppTMPro;
+using UnityEngine.InputSystem.XInput;
+using UnityEngine.InputSystem.Controls;
+using Il2CppGB.UI.Beasts;
 
 public class VotingSystem
 {
-    public Dictionary<Actor, Vector2> _actorPositions = new Dictionary<Actor, Vector2>();
-    public Dictionary<Actor, ActorGraphic> _actorGraphics = new Dictionary<Actor, ActorGraphic>();
+    private Dictionary<Actor, int> _actorVoteIndices = new();
+    private Dictionary<Actor, ActorGraphic> _actorGraphics = new();
     private bool _busy = true;
-    int numberOfRows;
-    int numberOfCollumns;
-    int mapBitsLength;
-    public MapUIBit[] mapBits;
-    Transform canvasParent;
-    float timer;
-    float timeWaited;
-    bool movedThisFrame;
+    private int numberOfRows;
+    private int numberOfCollumns;
+    private int mapBitsLength;
+    public UIBit[] mapBits;
+    private Transform canvasParent;
+    private float timer;
+    private TMP_Text timerText;
+    private float timeWaited;
+    private bool movedThisFrame;
+
+    private Color originalTimerTextColour;
 
     public event Action<int> VotingEnded;
 
-    public VotingSystem(float time, MapUIBit[] mapBits, int numberOfCollumns, Transform canvasParent)
+    public VotingSystem(float time, UIBit[] mapBits, int numberOfCollumns, Transform canvasParent, TMP_Text timerText)
     {
-        Cement.Log($"Creating voting system! {mapBits.Length}");
+        LoggingUtilities.VerboseLog($"Creating voting system! {mapBits.Length}");
         mapBitsLength = mapBits.Length;
         this.mapBits = mapBits;
+        for (int i = 0; i < mapBits.Length; ++i)
+        {
+            this.mapBits[i].SetGridIndex(i);
+        }
         this.numberOfCollumns = numberOfCollumns;
         numberOfRows = Mathf.CeilToInt(mapBitsLength / numberOfCollumns);
         this.canvasParent = canvasParent;
-
         timer = time;
+        this.timerText = timerText;
+        timerText.text = "Waiting...";
+        originalTimerTextColour = timerText.color;
+        LoggingUtilities.VerboseLog($"Created voting system!");
+    }
+    
+    public Actor GetActorFromPlayerID(int playerId)
+    {
+        var bneastMenuState = GameObject.FindObjectOfType<BeastMenuState>();
+        if (bneastMenuState == null) return null;
 
-        BindKeys();
+        foreach (var pointState in bneastMenuState._pointStates)
+        {
+            if (pointState._linkedLocal.PlayerID == playerId)
+                return pointState._beast;
+        }
+
+        return null;
     }
 
-    private void BindKeys()
+    private void HandleKeybinds()
     {
-        InputManager.onInput(Input.d).bind(dPressed);
-        InputManager.onInput(Input.leftstickRight).bind(dPressed);
+        if (Keyboard.current.dKey.wasPressedThisFrame) dPressed(BeastInput.KeyboardMouseBeast);
+        if (Keyboard.current.aKey.wasPressedThisFrame) aPressed(BeastInput.KeyboardMouseBeast);
+        if (Keyboard.current.wKey.wasPressedThisFrame) wPressed(BeastInput.KeyboardMouseBeast);
+        if (Keyboard.current.sKey.wasPressedThisFrame) sPressed(BeastInput.KeyboardMouseBeast);
 
-        InputManager.onInput(Input.a).bind(aPressed);
-        InputManager.onInput(Input.leftstickLeft).bind(aPressed);
+        foreach (var actor in Actor._ActorCache)
+        {
+            if (actor == BeastInput.KeyboardMouseBeast) continue;
 
-        InputManager.onInput(Input.w).bind(wPressed);
-        InputManager.onInput(Input.leftstickUp).bind(wPressed);
+            InputDevice device = BeastInput.GetDevicesFor(actor)[0];
+            if (device == null)
+            {
+                LoggingUtilities.VerboseLog($"device for actor {actor.name} is null!!!!!!!!!!!!!!!!!!");
+                continue;
+            }
 
-        InputManager.onInput(Input.s).bind(sPressed);
-        InputManager.onInput(Input.leftstickDown).bind(sPressed);
+            LoggingUtilities.VerboseLog($"got device for actor {actor.name}");
+
+            if (device.GetChildControl<ButtonControl>(InputCode.leftstickRight).wasPressedThisFrame) dPressed(actor);
+            if (device.GetChildControl<ButtonControl>(InputCode.leftstickLeft).wasPressedThisFrame) aPressed(actor);
+            if (device.GetChildControl<ButtonControl>(InputCode.leftstickUp).wasPressedThisFrame) wPressed(actor);
+            if (device.GetChildControl<ButtonControl>(InputCode.leftstickDown).wasPressedThisFrame) sPressed(actor);
+        }
     }
 
-    private void UnbindKeys()
+    // returns -1 for an invalid index,
+    // otherwise the return value is the new valid index for the actor graphic
+    private int GetNewIndex(int index, Vector2Int direction)
     {
-        InputManager.onInput(Input.d).unbind(dPressed);
-        InputManager.onInput(Input.leftstickRight).unbind(dPressed);
+        int y = (int)Mathf.Floor(index / (float)numberOfCollumns);
+        int x = index - y * numberOfCollumns;
+        LoggingUtilities.VerboseLog($"Current X: {x}, Y: {y}");
+        
+        x += direction.x;
+        y += direction.y;
 
-        InputManager.onInput(Input.a).unbind(aPressed);
-        InputManager.onInput(Input.leftstickLeft).unbind(aPressed);
+        LoggingUtilities.VerboseLog($"New X: {x}, Y: {y}");
 
-        InputManager.onInput(Input.w).unbind(wPressed);
-        InputManager.onInput(Input.leftstickUp).unbind(wPressed);
+        if (x < 0 || y < 0)
+            return -1;
 
-        InputManager.onInput(Input.s).unbind(sPressed);
-        InputManager.onInput(Input.leftstickDown).unbind(sPressed);
-    }
+        if (x >= numberOfCollumns || y > numberOfRows)
+            return -1;
 
-    private bool IsPositionValid(Vector2 vec)
-    {
-        if (vec.x < 0 || vec.y < 0)
-        {
-            return false;
-        }
-        if (vec.x >= numberOfCollumns || vec.y > numberOfRows)
-        {
-            return false;
-        }
-        if (vec.x + vec.y * numberOfCollumns > mapBitsLength - 1)
-        {
-            return false;
-        }
-        return true;
+        int newIndex = x + y * numberOfCollumns;
+        if (newIndex  >= mapBitsLength)
+            return -1;
+
+
+        return newIndex;
     }
 
     private void dPressed(Actor a)
@@ -88,9 +122,9 @@ public class VotingSystem
         if (!_busy)
             return;
 
-        Cement.Log("PRESSED D");
+        LoggingUtilities.VerboseLog("D was pressed!");
 
-        MoveActor(a, Vector2.right);
+        MoveActor(a, Vector2Int.right);
     }
 
     private void aPressed(Actor a)
@@ -98,9 +132,7 @@ public class VotingSystem
         if (!_busy)
             return;
 
-        Cement.Log("PRESSED A");
-
-        MoveActor(a, Vector2.left);
+        MoveActor(a, Vector2Int.left);
     }
 
     private void wPressed(Actor a)
@@ -108,9 +140,8 @@ public class VotingSystem
         if (!_busy)
             return;
 
-        Cement.Log("PRESSED W");
-
-        MoveActor(a, Vector2.down);
+        // inverted here because of how the indices are laid out
+        MoveActor(a, Vector2Int.down);
     }
 
     private void sPressed(Actor a)
@@ -118,14 +149,13 @@ public class VotingSystem
         if (!_busy)
             return;
 
-        Cement.Log("PRESSED S");
-
-        MoveActor(a, Vector2.up);
+        // inverted here because of how the indices are laid out
+        MoveActor(a, Vector2Int.up);
     }
 
     private void AddActor(Actor a)
     {
-        _actorPositions[a] = Vector2.zero;
+        _actorVoteIndices[a] = 0;
         GameObject actorGraphic = GameObject.Instantiate(BMSResources.actorGraphic);
         actorGraphic.transform.SetParent(canvasParent);
         _actorGraphics[a] = actorGraphic.AddComponent<ActorGraphic>();
@@ -134,53 +164,76 @@ public class VotingSystem
         actorGraphic.transform.localScale = Vector3.one;
     }
 
-    private void MoveActor(Actor a, Vector2 direction)
+    private void MoveActor(Actor a, Vector2Int direction)
     {
-        if (!_actorPositions.ContainsKey(a))
+        LoggingUtilities.VerboseLog($"Moving actor!");
+        LoggingUtilities.VerboseLog($"Actor {a}!");
+        if (!_actorVoteIndices.ContainsKey(a))
         {
             AddActor(a);
-            UpdateGraphic(a, _actorPositions[a]);
+            UpdateGraphic(a, _actorVoteIndices[a]);
             return;
         }
 
-        Vector2 desiredPosition = _actorPositions[a] + direction;
-
-        if (IsPositionValid(desiredPosition))
+        int newIndex = GetNewIndex(_actorVoteIndices[a], direction);
+        LoggingUtilities.VerboseLog($"new index {newIndex}");
+        if (newIndex != -1)
         {
             movedThisFrame = true;
-            _actorPositions[a] = desiredPosition;
-            UpdateGraphic(a, desiredPosition);
+            _actorVoteIndices[a] = newIndex;
+            UpdateGraphic(a, newIndex);
         }
     }
 
-    private void UpdateGraphic(Actor a, Vector2 pos)
+    public void MoveActor(Actor a, int index)
     {
-        int graphicIndex = (int)pos.x + (int)pos.y * numberOfCollumns;
+        LoggingUtilities.VerboseLog($"Moving actor!");
+        LoggingUtilities.VerboseLog($"Actor {a}!");
+        if (!_actorVoteIndices.ContainsKey(a))
+        {
+            AddActor(a);
+        }
+
+        if (index < 0 || index >= mapBits.Length) return;
+
+        movedThisFrame = true;
+        _actorVoteIndices[a] = index;
+        UpdateGraphic(a, index);
+    }
+
+    private void UpdateGraphic(Actor a, int index)
+    {
+        int graphicIndex = index;
         _actorGraphics[a].transform.position = mapBits[graphicIndex].transform.position;
         _actorGraphics[a].UpdateSticker();
+    }
+
+    private void SetTimerText()
+    {
+        if (timeWaited > 0.5f)
+        {
+            timerText.color = Color.red;
+            timerText.text = (2f - timeWaited).ToString("0.0");
+        }
+        else
+        {
+            timerText.color = originalTimerTextColour;
+            timerText.text = Mathf.Max(timer, 0.0f).ToString(timer <= 3 ? "0.0" : "0");
+        }
     }
 
     public void Tick(float deltaTime)
     {
         if (!_busy)
-        {
             return;
-        }
 
-        if (_actorPositions.Count == 0)
-        {
+        HandleKeybinds();
+
+        if (_actorVoteIndices.Count == 0)
             return;
-        }
 
-        if (movedThisFrame)
-        {
-            timeWaited = 0;
-        }
-        else
-        {
-            timeWaited += deltaTime;
-        }
-        
+        SetTimerText();
+       
         if (timer <= 0 || timeWaited > 2f)
         {
             EndVote();
@@ -189,45 +242,64 @@ public class VotingSystem
                 VotingEnded.Invoke(GetResult());
             }
         }
+
+        timer -= deltaTime;
+        if (movedThisFrame)
+        {
+            timeWaited = 0;
+        }
+        else
+        {
+            timeWaited += deltaTime;
+        }
+
         movedThisFrame = false;
     }
 
     public void EndVote()
     {
         _busy = false;
+        timerText.color = originalTimerTextColour;
         foreach (ActorGraphic graphic in _actorGraphics.Values)
         {
             GameObject.Destroy(graphic.gameObject);
         }
-        UnbindKeys();
+    }
+
+    public Dictionary<Actor, int> GetActorVotes()
+    {
+        return _actorVoteIndices;
+    }
+
+    public Dictionary<Actor, ActorGraphic> GetActorGraphics()
+    {
+        return _actorGraphics;
     }
 
     private int GetResult()
     {
-        if (_actorPositions.Count == 0)
+        if (_actorVoteIndices.Count == 0)
         {
             return Random.Range(0, mapBitsLength - 1);
         }
 
-        Dictionary<int, int> _indexOccurrences = new Dictionary<int, int>();
-        foreach (Vector2 vec in _actorPositions.Values)
+        Dictionary<int, int> _indexOccurrences = new();
+        foreach (int index in _actorVoteIndices.Values)
         {
-            int index = (int)vec.x + (int)vec.y * numberOfCollumns;
             if (!_indexOccurrences.ContainsKey(index))
-            {
                 _indexOccurrences[index] = 0;
-            }
+
             _indexOccurrences[index]++;
         }
 
         int mostAbundant = -1;
-        List<int> mostAbundantIndices = new List<int>();
+        List<int> mostAbundantIndices = new ();
 
         foreach (int index in _indexOccurrences.Keys)
         {
             if (_indexOccurrences[index] > mostAbundant)
             {
-                mostAbundantIndices = new List<int>();
+                mostAbundantIndices.Clear();
                 mostAbundantIndices.Add(index);
                 mostAbundant = _indexOccurrences[index];
             }

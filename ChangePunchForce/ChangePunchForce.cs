@@ -12,18 +12,11 @@ public class ChangePunchForce : MelonMod
     private Rect _windowRect = new Rect(Screen.width / 2 - 200, 0, 400, 0);
     private bool _windowIsEnabled = false;
 
-    private bool _keysPressed = false;
-
     public override void OnUpdate()
     {
-        if (!_keysPressed && Keyboard.current.shiftKey.isPressed && Keyboard.current.zKey.isPressed)
+        if (Keyboard.current.shiftKey.isPressed && Keyboard.current.zKey.wasPressedThisFrame)
         {
             _windowIsEnabled = !_windowIsEnabled;
-            _keysPressed = true;
-        }
-        else if (Keyboard.current.shiftKey.wasReleasedThisFrame || Keyboard.current.zKey.wasReleasedThisFrame)
-        {
-            _keysPressed = false;
         }
         
         foreach (Actor actor in Actor.CachedActors)
