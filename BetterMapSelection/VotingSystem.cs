@@ -13,8 +13,8 @@ using Il2CppGB.UI.Beasts;
 
 public class VotingSystem
 {
-    private Dictionary<Actor, int> _actorVoteIndices = new();
-    private Dictionary<Actor, ActorGraphic> _actorGraphics = new();
+    private Dictionary<int, int> _actorVoteIndices = new();
+    private Dictionary<int, ActorGraphic> _actorGraphics = new();
     private bool _busy = true;
     private int numberOfRows;
     private int numberOfCollumns;
@@ -155,41 +155,44 @@ public class VotingSystem
 
     private void AddActor(Actor a)
     {
-        _actorVoteIndices[a] = 0;
+        int playerId = BeastInput.FallbackGetPlayerID(a);
+        _actorVoteIndices[playerId] = 0;
         GameObject actorGraphic = GameObject.Instantiate(BMSResources.actorGraphic);
         actorGraphic.transform.SetParent(canvasParent);
-        _actorGraphics[a] = actorGraphic.AddComponent<ActorGraphic>();
-        _actorGraphics[a].SetStickerColour(a.primaryColor);
+        _actorGraphics[playerId] = actorGraphic.AddComponent<ActorGraphic>();
+        _actorGraphics[playerId].SetStickerColour(a.primaryColor);
         actorGraphic.transform.eulerAngles = new Vector3(0, -90, 0);
         actorGraphic.transform.localScale = Vector3.one;
     }
 
     private void MoveActor(Actor a, Vector2Int direction)
     {
+        int playerId = BeastInput.FallbackGetPlayerID(a);
         LoggingUtilities.VerboseLog($"Moving actor!");
         LoggingUtilities.VerboseLog($"Actor {a}!");
-        if (!_actorVoteIndices.ContainsKey(a))
+        if (!_actorVoteIndices.ContainsKey(playerId))
         {
             AddActor(a);
-            UpdateGraphic(a, _actorVoteIndices[a]);
+            UpdateGraphic(a, _actorVoteIndices[playerId]);
             return;
         }
 
-        int newIndex = GetNewIndex(_actorVoteIndices[a], direction);
+        int newIndex = GetNewIndex(_actorVoteIndices[playerId], direction);
         LoggingUtilities.VerboseLog($"new index {newIndex}");
         if (newIndex != -1)
         {
             movedThisFrame = true;
-            _actorVoteIndices[a] = newIndex;
+            _actorVoteIndices[playerId] = newIndex;
             UpdateGraphic(a, newIndex);
         }
     }
 
     public void MoveActor(Actor a, int index)
     {
+        int playerId = BeastInput.FallbackGetPlayerID(a);
         LoggingUtilities.VerboseLog($"Moving actor!");
         LoggingUtilities.VerboseLog($"Actor {a}!");
-        if (!_actorVoteIndices.ContainsKey(a))
+        if (!_actorVoteIndices.ContainsKey(playerId))
         {
             AddActor(a);
         }
@@ -197,15 +200,17 @@ public class VotingSystem
         if (index < 0 || index >= mapBits.Length) return;
 
         movedThisFrame = true;
-        _actorVoteIndices[a] = index;
+        _actorVoteIndices[playerId] = index;
         UpdateGraphic(a, index);
     }
 
     private void UpdateGraphic(Actor a, int index)
     {
+        int playerId = BeastInput.FallbackGetPlayerID(a);
+
         int graphicIndex = index;
-        _actorGraphics[a].transform.position = mapBits[graphicIndex].transform.position;
-        _actorGraphics[a].UpdateSticker();
+        _actorGraphics[playerId].transform.position = mapBits[graphicIndex].transform.position;
+        _actorGraphics[playerId].UpdateSticker();
     }
 
     private void SetTimerText()
@@ -266,12 +271,12 @@ public class VotingSystem
         }
     }
 
-    public Dictionary<Actor, int> GetActorVotes()
+    public Dictionary<int, int> GetActorVotes()
     {
         return _actorVoteIndices;
     }
 
-    public Dictionary<Actor, ActorGraphic> GetActorGraphics()
+    public Dictionary<int, ActorGraphic> GetActorGraphics()
     {
         return _actorGraphics;
     }

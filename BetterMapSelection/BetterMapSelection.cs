@@ -31,6 +31,7 @@ using System.Reflection.Metadata.Ecma335;
 using Il2CppCostumes;
 using Il2CppGB.Platform.Lobby.Utils;
 using CementGB.Mod.Modules.BeastInput;
+using Il2CppSystem.Runtime.Remoting.Lifetime;
 
 [assembly: MelonInfo(typeof(BetterMapSelectionMod), "BetterMapSelection", "0.0.1", "dotpy")]
 namespace BetterMapSelection
@@ -363,8 +364,9 @@ namespace BetterMapSelection
             if (CurrentVotingSystem == null) return;
             foreach (Actor actor in CurrentVotingSystem.GetActorVotes().Keys)
             {
-                UpdateBeastTeam(actor, CurrentVotingSystem.GetActorVotes()[actor]);
-                UpdateActorGraphicColour(actor, CurrentVotingSystem.GetActorGraphics()[actor]);
+                var id = BeastInput.FallbackGetPlayerID(actor);
+                UpdateBeastTeam(actor, CurrentVotingSystem.GetActorVotes()[id]);
+                UpdateActorGraphicColour(actor, CurrentVotingSystem.GetActorGraphics()[id]);
             }
         }
 
